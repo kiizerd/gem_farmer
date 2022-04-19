@@ -12,10 +12,15 @@ module Takara
         @sea_level = sea_level
         @width     = world_size * 16
         @height    = world_size *  9
-        terrain = generate_terrain_noise
-        
-        terrain_string_array = Terrain.stringify_terrain(terrain)
-        Terrain.write_terrain_strings(terrain_string_array)
+
+        if state.chunk_gen
+          generate_terrain_chunks
+        else
+          terrain = generate_terrain_noise
+          
+          terrain_string_array = Terrain.stringify_terrain(terrain)
+          Terrain.write_terrain_strings(terrain_string_array)
+        end
 
         state.terrain_init_finish_at = Time.new.to_i
       end
@@ -45,6 +50,7 @@ module Takara
 
       def self.stringify_blocks blocks
         size = blocks.size
+        return '' if size == 0
 
         values = blocks.first.map do |key, _|
           [key, []]
@@ -74,6 +80,8 @@ module Takara
       def self.parse_blocks filename
         block_key  = [:x, :y, :w, :h, :r, :g, :b, :a, :pos, :type, :noise]
         raw_data   = $gtk.read_file(filename)
+        return {} if !raw_data || raw_data&.size == 0
+
         block_data = raw_data.split('-|-').map { |d| d.split('|') }
         
         block_count = block_data.first.count
@@ -96,6 +104,8 @@ module Takara
 
       def self.parse_lookup filename
         raw_data = $gtk.read_file(filename)
+        return {} if !raw_data || raw_data&.size == 0
+
         raw_data.split('|').map do |lookup_string|
           pos_str, noise_str = lookup_string.split('=')
           pos   = pos_str.split('+').map(&:to_i)
@@ -107,6 +117,8 @@ module Takara
 
       def self.parse_state filename
         raw_data = $gtk.read_file(filename)
+        return {} if !raw_data || raw_data&.size == 0
+
         raw_data.split('|').map do |state_string|
           pos_str, state_str = state_string.split('=')
           pos   = pos_str.split('+').map(&:to_i)
@@ -118,6 +130,8 @@ module Takara
       
       def self.parse_types filename
         raw_data = $gtk.read_file(filename)
+        return {} if !raw_data || raw_data&.size == 0
+
         raw_data.split('|').map do |type_string|
           pos_str, type_str = type_string.split('=')
           pos  = pos_str.split('+').map(&:to_i)
@@ -183,7 +197,7 @@ module Takara
 
       def self.calc_ocean_color noise
         # [128, 177, 194, 255] Base Ocean color
-        num = noise + ($state.sea_level / 2)
+        num = noise + ($state.sea_level) + 1
         [
           108 + (75 * num) - 75,
           157 + (55 * num) - 55,
@@ -196,6 +210,39 @@ module Takara
         width, height = [16, 9].map { |x| x * $state.world_size }
 
         [$grid.w / width, $grid.h / height].map(&:floor)
+      end
+
+      def self.noise_formula noises, pos
+        x, y = pos
+        n1 = noises[x * 0.090 + 13.7, y * 0.120 + 25.1]
+        n2 = noises[x * 0.060 + 3.42, y * 0.075 + 3.71]
+        n3 = noises[x * 0.120 + 46.1, y * 0.150 + 50.2]
+        n4 = noises[x * 0.027 + 0.71, y * 0.034 + 0.89]
+        n5 = noises[x * 0.170 + 61.9, y * 0.195 + 72.4]
+
+        (n1 + n2 + n3 + n4 + n5) / (0.5 + 0.75 + 1 + 0.315 + 0.827)
+      end
+
+      def generate_empty_chunks
+        chunk_count = $state.world_size
+
+        chunks = chunk_count.times.map do |x|
+          chunk_count.times.map do |y|
+            "#{16 * x}+#{9 * y}"
+          end
+        end.flatten.map { |c| c.split('+').map(&:to_i) }
+
+        chunks
+      end
+
+      def generate_terrain_chunks
+        noise_seed = $gtk.seed
+        gradient   = calc_island_gradient
+        empty_chunks = generate_empty_chunks
+
+        empty_chunks.each_with_index do |first_block, chunk_index|
+          Chunk.new(first_block, noise_seed, gradient, chunk_index)
+        end
       end
 
       def generate_terrain_noise
@@ -215,16 +262,14 @@ module Takara
             n   = terrain_noise_formula(noises, pos) - (gradient[x][y] * 0.9)
             n   = n.round(7)
 
+            ocean << Terrain.build_block(pos, n - 1)
+
             if n > @sea_level
               land << Terrain.build_block(pos, n)
               lookup[pos] = n
               states[pos] = :natural
               types[pos]  = Terrain.calc_terrain_type(n)
             end
-
-            $state.sea_level = 1.0
-            ocean << Terrain.build_block(pos, n)
-            $state.sea_level = @sea_level            
 
             y += 1
           end

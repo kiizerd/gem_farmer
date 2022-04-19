@@ -16,7 +16,12 @@ module Takara
          generate_terrain(world_size, sea_level)
         end
 
-        read_terrain_from_file
+        if state.chunk_gen
+          read_terrain_chunks_from_file
+        else
+          read_terrain_from_file
+        end
+
         state.world_init_finish_at = Time.new.to_i
       end
 
@@ -124,6 +129,37 @@ module Takara
 
         $outputs[:island].primitives << sprite_land_blocks
         $outputs[:oceans].solids     << ocean_blocks
+      end
+
+      def read_terrain_chunks_from_file
+        @lookup       = {}
+        @blockstates  = {}
+        @blocktypes   = {}
+        @interactions = {}
+
+        chunk_dir = 'data/terrain/chunks'
+        ($state.world_size**2).times do |c|
+          land_blocks = Terrain.parse_blocks(chunk_dir + "/island/chunk_#{c}")
+          ocean_blocks = Terrain.parse_blocks(chunk_dir + "/ocean/chunk_#{c}")
+          @lookup.merge!(Terrain.parse_lookup(chunk_dir + "/lookup/chunk_#{c}"))
+          @blockstates.merge!(Terrain.parse_state(chunk_dir + "/states/chunk_#{c}"))
+          @blocktypes.merge!(Terrain.parse_types(chunk_dir + "/types/chunk_#{c}"))
+          chunk_interaction_filename = chunk_dir + "/interactions/chunk_#{c}"
+          chunk_interactions = state.ctrl.interaction.parse_interactions(chunk_interaction_filename)
+          @interactions.merge!(chunk_interactions)
+
+          if land_blocks && land_blocks&.size > 0
+            sprite_land_blocks = blocks_as_sprites(land_blocks[1..-1])
+            $outputs[:island].primitives << sprite_land_blocks
+          end
+
+          $outputs[:oceans].solids << ocean_blocks
+        end
+
+        # @lookup = @lookup.reduce({}, :merge)
+        # @blockstates = @blockstates.reduce({}, :merge)
+        # @blocktypes = @blocktypes.reduce({}, :merge)
+        # @interactions = @interactions.reduce({}, :merge)
       end
 
       def blocks_as_sprites blocks

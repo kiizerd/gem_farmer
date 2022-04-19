@@ -355,8 +355,8 @@ module Takara
       $gtk.write_file('data/terrain/interactions', interactions_string)
     end
 
-    def parse_interactions
-      data = $gtk.read_file('data/terrain/interactions') || ''
+    def parse_interactions filename=false
+      data = $gtk.read_file(filename || 'data/terrain/interactions') || ''
       data.split('|').map do |data_string|
         pos_str, interaction_str = data_string.split('=')
         pos = pos_str.split('+').map(&:to_i)
